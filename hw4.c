@@ -74,7 +74,21 @@ typedef struct EllipseStruct{
    double rMinor; // Minor radius
 } EllipseStruct;
 
-double th; // Rotation about the Z axis in degrees
+// Cos and Sin in degrees
+double Cos(double theta)
+{
+   return cos(theta * 3.1415926535 / 180.0);
+}
+
+double Sin(double theta)
+{
+   return sin(theta * 3.1415926535 / 180.0);
+}
+
+double Tan(double theta)
+{
+   return tan(theta * 3.1415926535 / 180.0);
+}
 
 
 //-----------------------------------------------------------
@@ -82,12 +96,24 @@ double th; // Rotation about the Z axis in degrees
 //-----------------------------------------------------------
 
 Color color = {1.0, 1.0, 1.0}; // Default color white
-ViewParams view = {
-    (Point){0.0, 0.0, 0.0},
-    (Angle){NAN, 0.0, 0.0},
-}; // Default to back a bit so the origin is visible
 
-int m = 0; // perspective mode switcher
+double asp = 1;   // Aspect ratio
+int fov = 110;     // Field of view for perspective
+int m = 0;        // perspective mode switcher
+double dim = 10.0; // Size of the world
+double off = -3.6; // Z offset for orthographic and perspective projections
+double ph = 20;  // Elevation of view angle
+double th = 45;   // Azimuth of view angle
+double Ex = 0.0; // First person camera x position
+double Ey = 0.0; // first person camera y position
+double Ez = 0.0; // first person camera z position
+double dx = 0.0; // first person view direction x component
+double dy = 0.0; // first person view direction y component
+double dz = 1.0; // first person view direction z component
+
+// Mouse control variables
+int mouseX = 0, mouseY = 0;  // Current mouse position
+int mouseCaptured = 0;       // Whether mouse is captured for camera control
 
 /*
  *  Check for OpenGL errors
@@ -128,37 +154,6 @@ void Print(const char *format, ...)
    //  Display the characters one at a time at the current raster position
    while (*ch)
       glutBitmapCharacter(GLUT_BITMAP_HELVETICA_18, *ch++);
-}
-
-void SetCamera(ViewParams view)
-{
-   //  Set view angle
-   glLoadIdentity();
-   glRotated(view.angle.ph, 1.0, 0.0, 0.0);  // Apply pitch rotation first
-   glRotated(view.angle.th, 0.0, 1.0, 0.0);  // Apply yaw rotation second
-   glTranslated(view.pos.x, view.pos.y, view.pos.z);  // Move camera to position
-
-   glWindowPos2i(5, 45);
-   Print("Camera Position: x=%.2f, y=%.2f, z=%.2f", view.pos.x, view.pos.y, view.pos.z);
-   glWindowPos2i(5, 25);
-   Print("Camera Angle: yaw=%.1f, pitch=%.1f", view.angle.th, view.angle.ph);
-}
-
-
-// Cos and Sin in degrees
-double Cos(double theta)
-{
-   return cos(theta * 3.1415926535 / 180.0);
-}
-
-double Sin(double theta)
-{
-   return sin(theta * 3.1415926535 / 180.0);
-}
-
-double Tan(double theta)
-{
-   return tan(theta * 3.1415926535 / 180.0);
 }
 
 // Compute angles for aligning the khat vector with a given direction vector
@@ -517,7 +512,7 @@ void drawBicycle(Point origin, Point direction, Point scale)
 
    // Apply rotation
    glPushMatrix();
-   glTranslated(-origin.x, -origin.y, -origin.z);
+   glTranslated(origin.x, origin.y, origin.z);
    glRotated(forward.th, 0.0, 0.0, 1.0);  // Rotate about Z axis
    glRotated(forward.ph, 0.0, 1.0, 0.0);  // Rotate about Y axis
    glRotated(forward.psi, 1.0, 0.0, 0.0); // Rotate about X axis
@@ -556,19 +551,79 @@ void display()
    // Clear the image
    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-   // Set the camera
-   SetCamera(view);
+   // Reset transformations
+   glLoadIdentity();
 
-   drawBicycle((Point){0.0, 0.0, 2.0}, (Point){0.0, 0.0, -1.0}, (Point){1.0, 1.0, 1.0});
+   // Orthogonal projection
+   if( m == 0 )
+   {
+      // Rotate down to give oblique angle
+      glRotated(ph, 1.0, 0.0, 0.0);
+      glRotated(th, 0.0, 1.0, 0.0);
+   }
+   // Perspective projection
+   else if( m == 1 )
+   {
+      Ex = -2*dim*Sin(th)*Cos(ph);
+      Ey = +2*dim        *Sin(ph);
+      Ez = +2*dim*Cos(th)*Cos(ph);
+      gluLookAt(Ex,Ey,Ez , 0,0,0 , 0,Cos(ph),0);
+   }
+   // First person
+   else
+   {
+      Ey = 0.1*dim;
+      dx = Cos(th);
+      dy = Sin(ph);
+      dz = Sin(th);
 
-   drawBicycle((Point){1.5, 0.0, 6.0}, (Point){1.0, 0.0, 1.0}, (Point){2.0, 2.0, 2.0});
+      gluLookAt(Ex,Ey,Ez , Ex+dx,Ey+dy,Ez+dz , 0, 1, 0);
+   }
+   // Draw the "ground" as white plane at y=0
+   glColor3f(1.0, 1.0, 1.0);
+   glBegin(GL_QUADS);
+   glVertex3f(-dim, 0.0, -dim);
+   glVertex3f(+dim, 0.0, -dim);
+   glVertex3f(+dim, 0.0, +dim);
+   glVertex3f(-dim, 0.0, +dim);
+   glEnd();
 
-   drawBicycle((Point){0.0, 0.0, 4.0}, (Point){1.0, 0.0, 0.0}, (Point){5.0, 5.0, 5.0});
+   drawBicycle((Point){0.0, 3.0, 0.1*dim}, (Point){0.0, 0.0, -1.0}, (Point){1.0, 1.0, 1.0});
 
-   drawBicycle((Point){1.5, 2.0, 3.0}, (Point){1.0, 1.0, 0.0}, (Point){0.2, 0.2, 0.2});
+   drawBicycle((Point){0.4*dim*asp, 2.5, -0.8*dim}, (Point){1.0, 0.0, 1.0}, (Point){2.0, 2.0, 2.0});
 
-   drawBicycle((Point){-2.5, -2.0, 3.0}, (Point){1.0, 1.0, 0.0}, (Point){0.2, 0.2, 0.2});
+   drawBicycle((Point){0.0, 3.5, 0.75*dim}, (Point){1.0, 0.0, 0.0}, (Point){5.0, 5.0, 5.0});
 
+   drawBicycle((Point){-0.3*dim*asp, 1.2, 0.4*dim}, (Point){-0.8, 0.3, 1.0}, (Point){1.4, 1.4, 1.4});
+
+   drawBicycle((Point){-0.65*dim*asp, 2.0, -0.5*dim}, (Point){1.0, 1.0, 1.0}, (Point){1.3, 1.3, 1.3});
+
+   glColor3f(1.0, 0.0, 0.0 );
+   glWindowPos2i(5, 25);
+   Print("th = %.1f ph = %.1f", th, ph);
+   Print("Ex = %.1f Ey = %.1f Ez = %.1f", Ex, Ey, Ez);
+   Print("dx = %.2f dy = %.2f dz = %.2f", dx, dy, dz);
+   switch( m )
+   {
+      case 0:
+         glWindowPos2i(5,5);
+         Print("Projection = Orthogonal");
+         glWindowPos2i(5, 45);
+         Print("Z offset = %.1f", off);
+      break;
+      case 1:
+         glWindowPos2i(5,5);
+         Print("Projection = Perspective");
+      break;
+      case 2:
+         glWindowPos2i(5,5);
+         Print("Projection = First person");
+      break;
+      default:
+         Fatal("Unknown projection mode: %d", m);
+   }
+   
+   
    // Error check
    ErrCheck("display");
 
@@ -577,71 +632,143 @@ void display()
    glutSwapBuffers();
 }
 
+
+/*
+ *  Set projection
+ */
+static void Project()
+{
+   //  Tell OpenGL we want to manipulate the projection matrix
+   glMatrixMode(GL_PROJECTION);
+   //  Undo previous transformations
+   glLoadIdentity();
+   //  Orthogonal projection
+   if ( m == 0 )
+   {
+      glOrtho(-asp*dim,+asp*dim, -dim,+dim, -dim+off,2*dim+off);  // shifted back to see more of the scene
+   }
+   //  Perspective projection
+   else if( m == 1)
+   {
+      gluPerspective(fov,asp, dim/4, 4*dim);
+   }
+   // First person
+   else
+   {
+      gluPerspective(fov,asp, 0.001, 4*dim);
+   }
+   //  Switch to manipulating the model matrix
+   glMatrixMode(GL_MODELVIEW);
+   //  Undo previous transformations
+   glLoadIdentity();
+}
+
+
 /*
  * This function is called by GLUT when the window is resized
  */
 void reshape(int width, int height)
-{
-   // Check the perspective mode
-   switch( m )
-   {
-      // Orthogonal projection
-      case 0:
-
-         break;
-      case 1:
-
-         break;
-      case 2:
-         break;
-      default:
-         Fatal("Unknown perspective mode %d", m);
-         break;
-   }
+{   
    // Avoid divide by zero
-   if (height == 0)
-   {
-      height = 1;
-   }
-   float aspect = (float)width / height;
+   asp = (height>0) ? (double)width/height : 1;
 
    glViewport(0, 0, width, height);
 
-   glMatrixMode(GL_PROJECTION);
-   glLoadIdentity();
-   gluPerspective(110.0, aspect, 1.0, 30.0);
-
-   glMatrixMode(GL_MODELVIEW);
-   glLoadIdentity();
+   // Apply projection based on the current mode
+   Project();
 }
 
 void key(unsigned char ch, int x, int y)
 {
-   // Keys to move the camera around (FPS-style controls)
-   // Camera movement step size
-   double step = 0.2;
-   
+   // Keys to move the camera around (FPS-style controls)   
    if (ch == 'w' || ch == 'W')        // Move forward (into the scene)
-      view.pos.z -= step;
-   else if (ch == 's' || ch == 'S')   // Move backward (out of the scene)
-      view.pos.z += step;
-   else if (ch == 'a' || ch == 'A')   // Strafe left
-      view.pos.x -= step;
-   else if (ch == 'd' || ch == 'D')   // Strafe right
-      view.pos.x += step;
-   else if (ch == 'q' || ch == 'Q')   // Move up
-      view.pos.y += step;
-   else if (ch == 'e' || ch == 'E')   // Move down
-      view.pos.y -= step;
-   else if (ch == 'r' || ch == 'R')   // Reset camera to a good viewing position
    {
-      view.pos = (Point){0.0, 0.0, 0.0};  // Back and slightly above for good view
-      view.angle = (Angle){0.0, 0.0, 0.0}; // Slight downward angle
+      if( m == 0 )
+         off += 0.1;
+      else
+      {
+         Ex += 0.1*dx;
+         Ez += 0.1*dz;
+      }
    }
-   else if( ch == 'm' or 'M' )
+   else if (ch == 's' || ch == 'S')   // Move backward (out of the scene)
+   {
+      if( m == 0 )
+         off -= 0.1;
+      else
+      {
+         Ex -= 0.1*dx;
+         Ez -= 0.1*dz;
+      }
+   }
+   else if (ch == 'a' || ch == 'A')   // Strafe left
+   {
+      if( m == 2 )
+      {
+         Ex += 0.1*Cos(90.0-th);
+         Ez -= 0.1*Sin(90.0-th);
+      }
+   }
+   else if (ch == 'd' || ch == 'D')   // Strafe right
+   {
+      if( m == 2 )
+      {
+         Ex -= 0.1*Cos(90.0-th);
+         Ez += 0.1*Sin(90.0-th);
+      }
+   }
+   else if (ch == 'r' || ch == 'R')   // Reset to original configuration
+   {
+      m = 0;
+      Ex = 0;
+      Ey = 1;
+      Ez = 5;
+      th = 45;
+      ph = 20;
+      off = -3.6;
+   }
+   else if( ch == 'm' || ch == 'M' )
    {
       m = (m + 1) % 3;
+
+      if( m < 2 )
+      {
+         ph = 20.0; // Reset pitch to 20
+
+         // Determine the theta angle based on current Ex, Ez position
+         if( m == 0 )
+         {
+            th = atan2(Ez, Ex) * 180.0 / 3.1415926535 - 90.0;
+         }
+      }
+      else
+      {
+         // When switching to first person, look at the origin         
+         // Calculate the angles needed to look in this direction
+         double distance = sqrt(Ex*Ex + Ey*Ey + Ez*Ez);
+         if (distance > 0.001) 
+         {
+            // Calculate theta (horizontal angle) - atan2 gives us the angle in the XZ plane
+            th = atan2(-Ez, -Ex) * 180.0 / 3.1415926535;
+         } 
+         else 
+         {
+            // look forward if at origin
+            th = 0.0;
+         }
+      }
    }
+   else if (ch == 27) // Escape key
+      exit(0);
+      
+   // Keep the first person view to only inside the world box
+   if( m == 2 )
+   {
+      Ex = (Ex < -dim) ? -dim+0.001 : (Ex > dim) ? dim-0.001 : Ex;
+      Ez = (Ez < -dim) ? -dim+0.001 : (Ez > dim) ? dim-0.001 : Ez;
+   }
+
+   Project();
    //  Request display update
    glutPostRedisplay();
 }
@@ -651,31 +778,97 @@ void key(unsigned char ch, int x, int y)
  */
 void special(int key, int x, int y)
 {
-   double rotStep = 5.0; // degrees per key press
    // These seem backwards from the code perspective but make more sense when controlling the camera
    if (key == GLUT_KEY_RIGHT)
    {
-      view.angle.th += rotStep;
+      th += 5;
    }
    else if (key == GLUT_KEY_LEFT)    // Look left (yaw left)
    {
-      view.angle.th -= rotStep;
+      th -= 5;
    }
    else if (key == GLUT_KEY_UP)      // Look up (pitch up)
    {
-      view.angle.ph += rotStep;
+      ph += 5;
    }
    else if (key == GLUT_KEY_DOWN)    // Look down (pitch down)
    {
-      view.angle.ph -= rotStep;
+      ph -= 5;
    }
 
-   //  Keep angles to +/-360 degrees
-   view.angle.th = fmod(view.angle.th, 360.0);
-   view.angle.ph = fmod(view.angle.ph, 360.0);
+   Project();
 
    //  Request display update
    glutPostRedisplay();
+}
+
+/*
+ *  Mouse motion callback
+ */
+void motion(int x, int y)
+{
+   if (mouseCaptured)
+   {
+      // Calculate mouse movement
+      int deltaX = x - mouseX;
+      int deltaY = y - mouseY;
+      
+      // Update angles based on mouse movement
+      th += deltaX * 0.1;  // Horizontal movement controls azimuth (yaw)
+      if( m < 2 )
+         ph += deltaY * 0.1;  // Vertical movement controls elevation (pitch)
+      else
+      ph -= deltaY * 0.1;  // Vertical movement controls elevation (pitch), invert for first person
+      
+      // Keep phi within reasonable bounds
+      if (ph > 89) ph = 89;
+      if (ph < -89) ph = -89;
+      
+      // Wrap theta around 360 degrees
+      if (th > 360) th -= 360;
+      if (th < 0) th += 360;
+      
+      // Store current mouse position
+      mouseX = x;
+      mouseY = y;
+      
+      Project();
+      glutPostRedisplay();
+   }
+}
+
+/*
+ *  Mouse button callback
+ */
+void mouse(int button, int state, int x, int y)
+{
+   if (button == GLUT_LEFT_BUTTON)
+   {
+      if (state == GLUT_DOWN)
+      {
+         // Capture mouse for camera control
+         mouseCaptured = 1;
+         mouseX = x;
+         mouseY = y;
+         glutSetCursor(GLUT_CURSOR_NONE);  // Hide cursor
+      }
+      else
+      {
+         // Release mouse capture
+         mouseCaptured = 0;
+         glutSetCursor(GLUT_CURSOR_INHERIT);  // Show cursor
+      }
+   }
+}
+
+/*
+ *  Passive mouse motion (when no button is pressed)
+ */
+void passiveMotion(int x, int y)
+{
+   // Store mouse position even when not captured
+   mouseX = x;
+   mouseY = y;
 }
 
 // Function for basic animations
@@ -703,6 +896,9 @@ int main(int argc, char *argv[])
    glutKeyboardFunc(key);
    glutSpecialFunc(special);
    glutIdleFunc(idle);
+   glutMouseFunc(mouse);           // Mouse button callback
+   glutMotionFunc(motion);         // Mouse motion callback (with button pressed)
+   glutPassiveMotionFunc(passiveMotion); // Mouse motion callback (without button pressed)
    //  Enable Z-buffer depth test
    glEnable(GL_DEPTH_TEST);
    //  Pass control to GLUT for events
